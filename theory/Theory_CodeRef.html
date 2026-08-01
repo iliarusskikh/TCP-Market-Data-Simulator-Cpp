@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C++ Code Reference — Project Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theory.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+<div class="layout">
+
+  <nav class="toc">
+    <a class="back" href="index.html">← Theory index</a>
+    <span class="toc-label">Contents</span>
+    <ol id="toc-list">
+      <li><a href="#scope"><span class="num">01</span>Scope &amp; dialect</a></li>
+      <li><a href="#headers"><span class="num">02</span>Headers &amp; linkage</a></li>
+      <li><a href="#types"><span class="num">03</span>Types &amp; enums</a></li>
+      <li><a href="#memory"><span class="num">04</span>Layout &amp; casts</a></li>
+      <li><a href="#raii-move"><span class="num">05</span>RAII &amp; move</a></li>
+      <li><a href="#templates"><span class="num">06</span>Templates</a></li>
+      <li><a href="#stl"><span class="num">07</span>STL used</a></li>
+      <li><a href="#chrono"><span class="num">08</span>chrono &amp; time</a></li>
+      <li><a href="#signals"><span class="num">09</span>Signals &amp; errno</a></li>
+      <li><a href="#keywords"><span class="num">10</span>Keyword index</a></li>
+      <li><a href="#not-used"><span class="num">11</span>Deliberately unused</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <span class="eyebrow">TCP Market Data Simulator · Look-up notes</span>
+      <h1 class="title">C++ <span class="brace">{</span> Code reference <span class="brace">}</span></h1>
+      <p class="subtitle">Language features and library pieces that actually appear in this tree — with the file that demonstrates each one. Companion to the systems notes (sockets, poll, protocol), not a general C++ tutorial.</p>
+    </header>
+
+    <!-- 01 -->
+    <section id="scope">
+      <div class="section-head"><span class="idx">01</span><h2>Scope &amp; dialect</h2></div>
+      <table>
+        <tr><th>Item</th><th>In this project</th></tr>
+        <tr><td>Standard</td><td><code class="inline">C++11</code> (<code class="inline">CMakeLists.txt</code>: <code class="inline">CMAKE_CXX_STANDARD 11</code>)</td></tr>
+        <tr><td>Deps</td><td>POSIX sockets + C++ standard library only — no Boost, fmt, Asio, …</td></tr>
+        <tr><td>Build shape</td><td>Two executables (<code class="inline">server</code>, <code class="inline">client</code>); logic in <strong>header-only</strong> helpers under <code class="inline">include/</code></td></tr>
+        <tr><td>Concurrency</td><td>Single-threaded event loops; no <code class="inline">std::thread</code> workers (client only uses <code class="inline">this_thread::sleep_for</code> for backoff)</td></tr>
+      </table>
+      <div class="card">
+        <span class="card-label">Decision</span>
+        <p><strong>C++11 floor.</strong> Enough for <code class="inline">enum class</code>, move semantics, chrono, <code class="inline">mt19937</code>, and range-<code class="inline">for</code>. Rejected: C++17 structured bindings / <code class="inline">std::optional</code> — would raise the bar without changing the story.</p>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section id="headers">
+      <div class="section-head"><span class="idx">02</span><h2>Headers &amp; linkage</h2></div>
+      <table>
+        <tr><th>Concept</th><th>Where</th><th>Why</th></tr>
+        <tr>
+          <td><code class="inline">#pragma once</code></td>
+          <td>All <code class="inline">include/*.hpp</code></td>
+          <td>Include guard (portable enough for this project)</td>
+        </tr>
+        <tr>
+          <td>Header-only API</td><td><code class="inline">protocol.hpp</code>, <code class="inline">config.hpp</code>, …</td>
+          <td><code class="inline">inline</code> free functions / classes defined in headers so both binaries share one copy without a static lib</td>
+        </tr>
+        <tr>
+          <td><code class="inline">namespace detail</code></td>
+          <td><code class="inline">config.hpp</code>, <code class="inline">log.hpp</code></td>
+          <td>Hide helpers (<code class="inline">trim</code>, <code class="inline">write</code>) from the public surface</td>
+        </tr>
+        <tr>
+          <td><code class="inline">static</code> free functions</td>
+          <td><code class="inline">server.cpp</code> (<code class="inline">now_ns_steady</code>, <code class="inline">drop_dead</code>, …)</td>
+          <td>Internal linkage — not exported to other TUs</td>
+        </tr>
+        <tr>
+          <td><code class="inline">::send</code> / <code class="inline">::recv</code> / <code class="inline">::poll</code></td>
+          <td>protocol, session, server/client</td>
+          <td>Global namespace — avoids clashing if someone names a member <code class="inline">send</code></td>
+        </tr>
+      </table>
+      <div class="code-wrap">
+        <div class="code-bar"><span>include/protocol.hpp (pattern)</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><code class="language-cpp">#pragma once
+// ...
+inline IoStatus send_exact(int fd, const void* buf, size_t n) {
+    // defined in header → both server and client can call it
+}</code></pre>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section id="types">
+      <div class="section-head"><span class="idx">03</span><h2>Types &amp; enums</h2></div>
+      <h3><code class="inline">enum class</code> (scoped enums)</h3>
+      <table>
+        <tr><th>Type</th><th>File</th><th>Role</th></tr>
+        <tr><td><code class="inline">MsgType</code></td><td><code class="inline">protocol.hpp</code></td><td>Wire discriminator (<code class="inline">: uint8_t</code> underlying type)</td></tr>
+        <tr><td><code class="inline">IoStatus</code></td><td><code class="inline">protocol.hpp</code></td><td><code class="inline">Ok</code> / <code class="inline">Closed</code> / <code class="inline">Error</code></td></tr>
+        <tr><td><code class="inline">FeedKind</code></td><td><code class="inline">protocol.hpp</code></td><td>Result of <code class="inline">recv_feed</code></td></tr>
+        <tr><td><code class="inline">LogLevel</code></td><td><code class="inline">log.hpp</code></td><td>Info / Warn / Error</td></tr>
+        <tr><td><code class="inline">ConnState</code></td><td><code class="inline">client.cpp</code></td><td>Disconnected → Connecting → Connected</td></tr>
+      </table>
+      <p>Scoped enums do not promote to <code class="inline">int</code> silently — wire code uses <code class="inline">static_cast&lt;uint8_t&gt;(MsgType::TICK)</code>.</p>
+
+      <h3><code class="inline">struct</code> vs <code class="inline">class</code></h3>
+      <ul>
+        <li><strong>Aggregate / POD-ish data:</strong> <code class="inline">TickMsg</code>, <code class="inline">HeartbeatMsg</code>, <code class="inline">AppConfig</code>, <code class="inline">FeedEvent</code>, <code class="inline">ClientSession</code> — public members by default via <code class="inline">struct</code>.</li>
+        <li><strong>Encapsulation / invariants:</strong> <code class="inline">SocketGuard</code>, <code class="inline">TickGenerator</code>, <code class="inline">LatencyStats</code>, <code class="inline">LogStream</code> — <code class="inline">class</code> with private state.</li>
+      </ul>
+
+      <h3>Fixed-width integers</h3>
+      <p><code class="inline">&lt;cstdint&gt;</code>: <code class="inline">uint8_t</code>, <code class="inline">uint32_t</code>, <code class="inline">uint64_t</code>, <code class="inline">int64_t</code> on the wire and in config symbol IDs. Avoids “how wide is <code class="inline">long</code>?” portability issues.</p>
+
+      <h3>Nested types</h3>
+      <p><code class="inline">TickGenerator::SymbolState</code> is a private nested <code class="inline">struct</code> — implementation detail of the generator.</p>
+    </section>
+
+    <!-- 04 -->
+    <section id="memory">
+      <div class="section-head"><span class="idx">04</span><h2>Layout, packing &amp; casts</h2></div>
+      <table>
+        <tr><th>Concept</th><th>Where</th><th>Notes</th></tr>
+        <tr>
+          <td><code class="inline">#pragma pack(push, 1)</code> / <code class="inline">pop</code></td>
+          <td><code class="inline">protocol.hpp</code></td>
+          <td>No padding between wire fields — layout matches the documented 25 / 9 byte sizes</td>
+        </tr>
+        <tr>
+          <td><code class="inline">static_assert</code></td>
+          <td><code class="inline">protocol.hpp</code></td>
+          <td>Compile-time check: <code class="inline">sizeof(TickMsg) == 25</code>, etc.</td>
+        </tr>
+        <tr>
+          <td><code class="inline">std::memcpy</code> type-pun</td>
+          <td><code class="inline">host_to_net_i64</code></td>
+          <td>Safe bit-preserving int64 ↔ uint64 for endian swap (avoids undefined aliasing)</td>
+        </tr>
+        <tr>
+          <td><code class="inline">reinterpret_cast</code></td>
+          <td><code class="inline">recv_feed</code>, enqueue, <code class="inline">bind</code>/<code class="inline">connect</code></td>
+          <td>Bytes ↔ struct; <code class="inline">sockaddr_in*</code> ↔ <code class="inline">sockaddr*</code></td>
+        </tr>
+        <tr>
+          <td><code class="inline">static_cast</code></td>
+          <td>Everywhere</td>
+          <td>Narrowing / enum → integer / duration counts — preferred over C casts</td>
+        </tr>
+        <tr>
+          <td>Value init <code class="inline">T{}</code></td>
+          <td><code class="inline">TickMsg wire{}</code>, <code class="inline">FeedEvent</code>, …</td>
+          <td>Zero members before filling</td>
+        </tr>
+        <tr>
+          <td>In-class initializers</td>
+          <td><code class="inline">SocketGuard::fd_{-1}</code>, <code class="inline">AppConfig</code> defaults</td>
+          <td>Defaults without writing every ctor</td>
+        </tr>
+      </table>
+      <div class="card warn">
+        <span class="card-label">Caveat</span>
+        <p>Packing + casting a buffer into a struct is intentional here for a fixed binary protocol. Do not treat this as a general pattern for arbitrary objects — alignment and strict aliasing still matter.</p>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section id="raii-move">
+      <div class="section-head"><span class="idx">05</span><h2>RAII, special members &amp; move</h2></div>
+      <p>Deep dive: <a href="Theory_RAII.html">Theory_RAII.html</a>. Short map of language features:</p>
+      <table>
+        <tr><th>Feature</th><th>Example</th></tr>
+        <tr><td>Destructor</td><td><code class="inline">~SocketGuard()</code> closes fd; <code class="inline">~LogStream()</code> flushes the line</td></tr>
+        <tr><td><code class="inline">= delete</code></td><td>Copy ctor/assign on <code class="inline">SocketGuard</code> and <code class="inline">LogStream</code></td></tr>
+        <tr><td><code class="inline">= default</code></td><td><code class="inline">SocketGuard() noexcept = default</code></td></tr>
+        <tr><td>Move ctor / assign</td><td><code class="inline">SocketGuard(SocketGuard&amp;&amp;)</code>; steal fd, null source</td></tr>
+        <tr><td><code class="inline">noexcept</code></td><td>On move ops and accessors that cannot fail</td></tr>
+        <tr><td><code class="inline">explicit</code></td><td><code class="inline">SocketGuard(int)</code>, <code class="inline">ClientSession(SocketGuard)</code>, <code class="inline">LogStream(LogLevel)</code> — no silent conversions</td></tr>
+        <tr><td><code class="inline">std::move</code></td><td>Accept → <code class="inline">clients.emplace_back(std::move(csock))</code>; <code class="inline">drop_dead</code> rebuild</td></tr>
+        <tr><td>Rule of Five</td><td><code class="inline">SocketGuard</code> (owns a raw resource)</td></tr>
+        <tr><td>Rule of Zero</td><td><code class="inline">ClientSession</code> — holds <code class="inline">SocketGuard</code> + <code class="inline">vector</code>, no custom special members</td></tr>
+        <tr><td>Self-assignment check</td><td><code class="inline">if (this != &amp;other)</code> in move-assign</td></tr>
+      </table>
+      <div class="code-wrap">
+        <div class="code-bar"><span>include/socket_guard.hpp (special members)</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><code class="language-cpp">SocketGuard(const SocketGuard&)            = delete;
+SocketGuard&amp; operator=(const SocketGuard&) = delete;
+
+SocketGuard(SocketGuard&amp;&amp; other) noexcept : fd_(other.fd_) {
+    other.fd_ = -1;
+}</code></pre>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section id="templates">
+      <div class="section-head"><span class="idx">06</span><h2>Templates</h2></div>
+      <p>Only light template use — no custom containers or CRTP.</p>
+      <div class="code-wrap">
+        <div class="code-bar"><span>include/log.hpp</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><code class="language-cpp">template &lt;typename T&gt;
+LogStream&amp; operator&lt;&lt;(const T&amp; v) {
+    ss_ &lt;&lt; v;
+    return *this;
+}</code></pre>
+      </div>
+      <p>That member template lets <code class="inline">log_info() &lt;&lt; "port=" &lt;&lt; port</code> accept any type streamable into <code class="inline">ostringstream</code>. STL templates used as clients: <code class="inline">vector&lt;T&gt;</code>, <code class="inline">uniform_int_distribution&lt;int&gt;</code>, <code class="inline">duration_cast&lt;nanoseconds&gt;</code>.</p>
+    </section>
+
+    <!-- 07 -->
+    <section id="stl">
+      <div class="section-head"><span class="idx">07</span><h2>STL used</h2></div>
+      <table>
+        <tr><th>Header / facility</th><th>Use in project</th></tr>
+        <tr><td><code class="inline">&lt;vector&gt;</code></td><td>Clients, outbound byte queues, pollfd list, latency samples, symbol state</td></tr>
+        <tr><td><code class="inline">&lt;string&gt;</code></td><td>Config, log messages, host</td></tr>
+        <tr><td><code class="inline">&lt;algorithm&gt;</code></td><td><code class="inline">std::sort</code> (percentiles), <code class="inline">std::min</code> / <code class="inline">std::max</code></td></tr>
+        <tr><td><code class="inline">&lt;chrono&gt;</code></td><td>Deadlines, timeouts, inter-arrival, log wall time</td></tr>
+        <tr><td><code class="inline">&lt;random&gt;</code></td><td><code class="inline">std::mt19937</code> + <code class="inline">uniform_int_distribution</code> in <code class="inline">TickGenerator</code></td></tr>
+        <tr><td><code class="inline">&lt;fstream&gt;</code> / <code class="inline">&lt;sstream&gt;</code></td><td>Config file + CSV symbol list + log stream buffer</td></tr>
+        <tr><td><code class="inline">&lt;iostream&gt;</code></td><td><code class="inline">cout</code> / <code class="inline">cerr</code> sinks in logger</td></tr>
+        <tr><td><code class="inline">&lt;utility&gt;</code></td><td><code class="inline">std::move</code> (via headers that pull it; used explicitly in server/session)</td></tr>
+        <tr><td><code class="inline">&lt;thread&gt;</code></td><td><code class="inline">std::this_thread::sleep_for</code> on client reconnect backoff only</td></tr>
+        <tr><td><code class="inline">&lt;cstdint&gt;</code> / <code class="inline">&lt;cstddef&gt;</code> / <code class="inline">&lt;cstdio&gt;</code></td><td>Fixed ints, <code class="inline">size_t</code>, <code class="inline">snprintf</code> for µs formatting</td></tr>
+        <tr><td><code class="inline">&lt;cctype&gt;</code></td><td><code class="inline">std::isspace</code> in config trim (cast to <code class="inline">unsigned char</code>)</td></tr>
+      </table>
+      <h3>Container idioms</h3>
+      <ul>
+        <li><code class="inline">reserve</code> before fill (<code class="inline">TickGenerator</code>, <code class="inline">drop_dead</code>)</li>
+        <li><code class="inline">emplace_back</code> + <code class="inline">std::move</code> for new sessions</li>
+        <li><code class="inline">insert(end, p, p+n)</code> to append wire bytes into <code class="inline">out</code></li>
+        <li><code class="inline">swap</code> to replace the clients vector after filtering dead ones</li>
+        <li>Range-<code class="inline">for</code>: <code class="inline">for (auto&amp; c : clients)</code></li>
+      </ul>
+      <h3>Exceptions (narrow)</h3>
+      <p><code class="inline">load_config</code> uses <code class="inline">try</code> / <code class="inline">catch (...)</code> around <code class="inline">std::stoi</code> / <code class="inline">stoul</code>. The I/O path is errno-based, not exception-driven.</p>
+    </section>
+
+    <!-- 08 -->
+    <section id="chrono">
+      <div class="section-head"><span class="idx">08</span><h2>chrono &amp; clocks</h2></div>
+      <table>
+        <tr><th>Clock</th><th>Where</th><th>Why</th></tr>
+        <tr>
+          <td><code class="inline">steady_clock</code></td>
+          <td>Server deadlines, client <code class="inline">last_rx</code> / inter-arrival, tick <code class="inline">timestamp_ns</code></td>
+          <td>Monotonic — safe for intervals and timeouts</td>
+        </tr>
+        <tr>
+          <td><code class="inline">system_clock</code></td>
+          <td><code class="inline">log.hpp</code> timestamps</td>
+          <td>Human-readable wall time in log lines</td>
+        </tr>
+      </table>
+      <p>Common pieces: <code class="inline">time_point</code>, <code class="inline">duration</code>, <code class="inline">duration_cast&lt;milliseconds|nanoseconds&gt;</code>, <code class="inline">milliseconds{n}</code>, <code class="inline">using clock = steady_clock</code>, <code class="inline">using namespace std::chrono</code> in small helpers.</p>
+      <div class="card">
+        <span class="card-label">Decision</span>
+        <p><strong>Two clocks, clear roles.</strong> Control-loop timing never uses wall clock (NTP can jump). Log stamps never use steady (not calendar time). See also <a href="Theory_Latency_Measurement.html">Latency</a>.</p>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section id="signals">
+      <div class="section-head"><span class="idx">09</span><h2>Signals, errno &amp; C interop</h2></div>
+      <table>
+        <tr><th>Concept</th><th>Where</th></tr>
+        <tr>
+          <td><code class="inline">volatile sig_atomic_t</code></td>
+          <td><code class="inline">g_shutdown</code> in server/client — async-signal-safe flag</td>
+        </tr>
+        <tr>
+          <td><code class="inline">sigaction</code> / <code class="inline">&lt;csignal&gt;</code></td>
+          <td>SIGINT / SIGTERM → set flag; main loop polls it</td>
+        </tr>
+        <tr>
+          <td><code class="inline">errno</code> + <code class="inline">EINTR</code> / <code class="inline">EAGAIN</code> / <code class="inline">EWOULDBLOCK</code></td>
+          <td><code class="inline">send_exact</code>, <code class="inline">flush</code>, <code class="inline">on_readable</code>, <code class="inline">poll</code></td>
+        </tr>
+        <tr>
+          <td>C headers via C++</td>
+          <td><code class="inline">&lt;cstring&gt;</code>, <code class="inline">&lt;cerrno&gt;</code>, <code class="inline">&lt;ctime&gt;</code>, <code class="inline">&lt;cstdlib&gt;</code></td>
+        </tr>
+        <tr>
+          <td>POSIX API</td>
+          <td><code class="inline">socket</code>, <code class="inline">bind</code>, <code class="inline">listen</code>, <code class="inline">accept</code>, <code class="inline">connect</code>, <code class="inline">poll</code>, <code class="inline">fcntl</code>, <code class="inline">setsockopt</code></td>
+        </tr>
+        <tr>
+          <td><code class="inline">#if defined(_WIN32)</code></td>
+          <td>Only in log timestamp helper (<code class="inline">localtime_s</code> vs <code class="inline">localtime_r</code>) — sockets path is POSIX</td>
+        </tr>
+      </table>
+    </section>
+
+    <!-- 10 -->
+    <section id="keywords">
+      <div class="section-head"><span class="idx">10</span><h2>Keyword &amp; feature index</h2></div>
+      <p class="dim">Quick scan — click a related section above for context.</p>
+      <table>
+        <tr><th>Keyword / feature</th><th>Seen?</th><th>Primary home</th></tr>
+        <tr><td><code class="inline">class</code> / <code class="inline">struct</code></td><td>yes</td><td>all headers</td></tr>
+        <tr><td><code class="inline">enum class</code></td><td>yes</td><td><code class="inline">protocol.hpp</code>, <code class="inline">log.hpp</code>, client</td></tr>
+        <tr><td><code class="inline">public</code> / <code class="inline">private</code></td><td>yes</td><td>guards, generators, stats</td></tr>
+        <tr><td><code class="inline">explicit</code></td><td>yes</td><td><code class="inline">SocketGuard</code>, <code class="inline">LogStream</code>, session</td></tr>
+        <tr><td><code class="inline">noexcept</code></td><td>yes</td><td><code class="inline">socket_guard.hpp</code>, log move</td></tr>
+        <tr><td><code class="inline">= delete</code> / <code class="inline">= default</code></td><td>yes</td><td>move-only types</td></tr>
+        <tr><td><code class="inline">inline</code></td><td>yes</td><td>header-only helpers</td></tr>
+        <tr><td><code class="inline">static</code> (fn / member)</td><td>yes</td><td>server helpers; <code class="inline">now_ns_steady</code></td></tr>
+        <tr><td><code class="inline">const</code> / <code class="inline">const&amp;</code></td><td>yes</td><td>throughout</td></tr>
+        <tr><td><code class="inline">nullptr</code></td><td>yes</td><td>argv checks, sigaction</td></tr>
+        <tr><td><code class="inline">auto</code></td><td>yes</td><td>range-for, time points, bindings-ish locals</td></tr>
+        <tr><td><code class="inline">using</code> (alias / NS)</td><td>yes</td><td><code class="inline">using clock = …</code></td></tr>
+        <tr><td><code class="inline">namespace</code></td><td>yes</td><td><code class="inline">detail</code></td></tr>
+        <tr><td><code class="inline">template</code></td><td>yes</td><td><code class="inline">LogStream::operator&lt;&lt;</code></td></tr>
+        <tr><td><code class="inline">operator&lt;&lt;</code> overload</td><td>yes</td><td><code class="inline">log.hpp</code></td></tr>
+        <tr><td><code class="inline">static_assert</code></td><td>yes</td><td>packed sizes</td></tr>
+        <tr><td><code class="inline">reinterpret_cast</code> / <code class="inline">static_cast</code></td><td>yes</td><td>protocol + sockets</td></tr>
+        <tr><td><code class="inline">try</code> / <code class="inline">catch</code></td><td>yes</td><td>config parse only</td></tr>
+        <tr><td><code class="inline">volatile</code></td><td>yes</td><td>shutdown flag</td></tr>
+        <tr><td><code class="inline">switch</code></td><td>yes</td><td>log level tag</td></tr>
+        <tr><td><code class="inline">bool</code> / <code class="inline">true</code> / <code class="inline">false</code></td><td>yes</td><td>session alive, options</td></tr>
+        <tr><td>Range-<code class="inline">for</code></td><td>yes</td><td>server client loops</td></tr>
+        <tr><td>Default / in-class member init</td><td>yes</td><td><code class="inline">AppConfig</code>, queues</td></tr>
+        <tr><td>Uniform init <code class="inline">{}</code></td><td>yes</td><td>messages, pollfd</td></tr>
+      </table>
+    </section>
+
+    <!-- 11 -->
+    <section id="not-used">
+      <div class="section-head"><span class="idx">11</span><h2>Deliberately unused (here)</h2></div>
+      <p>Useful to know what this project is <em>not</em> demonstrating:</p>
+      <ul>
+        <li><code class="inline">std::unique_ptr</code> / <code class="inline">shared_ptr</code> — fds via <code class="inline">SocketGuard</code>; no heap graph of sessions</li>
+        <li><code class="inline">std::mutex</code>, atomics (beyond <code class="inline">sig_atomic_t</code>), lock-free queues</li>
+        <li><code class="inline">virtual</code> / inheritance / CRTP</li>
+        <li><code class="inline">std::function</code>, callbacks as first-class design</li>
+        <li>C++17+: <code class="inline">optional</code>, <code class="inline">string_view</code>, structured bindings, <code class="inline">if constexpr</code></li>
+        <li>Exceptions for control flow on the hot path</li>
+      </ul>
+      <p class="dim">Those show up in other portfolio pieces; this one stays close to sockets + RAII + poll.</p>
+    </section>
+
+    <footer>
+      <a href="index.html">← Theory index</a> · <a href="Theory_RAII.html">RAII</a> · <a href="../PLAN.md">PLAN.md</a>
+    </footer>
+  </main>
+</div>
+<script src="theory.js"></script>
+</body>
+</html>
