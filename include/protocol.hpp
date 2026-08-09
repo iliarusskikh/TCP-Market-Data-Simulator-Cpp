@@ -55,7 +55,7 @@ inline uint64_t net_to_host64(uint64_t value) {
 inline int64_t host_to_net_i64(int64_t value) {
     uint64_t u;
     std::memcpy(&u, &value, sizeof(u));
-    u = host_to_net64(u);
+    u = host_to_net64(u); // convert to network order, works with uint64_t
     int64_t out;
     std::memcpy(&out, &u, sizeof(out));
     return out;
@@ -177,10 +177,7 @@ inline IoStatus recv_feed(int fd, FeedEvent& ev) {
     if (type == static_cast<uint8_t>(MsgType::TICK)) {
         TickMsg wire{};
         wire.msg_type = type;
-        const IoStatus st = recv_exact(
-            fd,
-            reinterpret_cast<char*>(&wire) + 1,
-            sizeof(wire) - 1);
+        const IoStatus st = recv_exact(fd, reinterpret_cast<char*>(&wire) + 1, sizeof(wire) - 1);
         if (st != IoStatus::Ok) return st;
         ev.kind = FeedKind::Tick;
         ev.tick = tick_from_wire(wire);
@@ -189,10 +186,7 @@ inline IoStatus recv_feed(int fd, FeedEvent& ev) {
     if (type == static_cast<uint8_t>(MsgType::HEARTBEAT)) {
         HeartbeatMsg wire{};
         wire.msg_type = type;
-        const IoStatus st = recv_exact(
-            fd,
-            reinterpret_cast<char*>(&wire) + 1,
-            sizeof(wire) - 1);
+        const IoStatus st = recv_exact(fd, reinterpret_cast<char*>(&wire) + 1, sizeof(wire) - 1);
         if (st != IoStatus::Ok) return st;
         ev.kind = FeedKind::Heartbeat;
         ev.hb = heartbeat_from_wire(wire);

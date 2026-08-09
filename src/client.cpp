@@ -15,10 +15,10 @@
 #include <cstdlib>
 #include <string>
 #include <thread>
-#include <poll.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <poll.h> // poll()
+#include <sys/socket.h> // socket()
+#include <netinet/in.h> // sockaddr_in
+#include <arpa/inet.h> // inet_pton()
 
 #include "config.hpp"
 #include "latency.hpp"
@@ -113,14 +113,11 @@ int main(int argc, char** argv) {
             }
 
             state = ConnState::Connecting;
-            log_info() << "state=" << state_name(state)
-                       << " attempt=" << (attempt + 1)
-                       << "/" << (cfg.reconnect_max_retries + 1);
+            log_info() << "state=" << state_name(state) << " attempt=" << (attempt + 1) << "/" << (cfg.reconnect_max_retries + 1);
 
             if (!connect_to_server(cfg, sock)) {
                 state = ConnState::Disconnected;
-                log_warn() << "Connect failed; backing off " << backoff_ms << "ms"
-                           << " state=" << state_name(state);
+                log_warn() << "Connect failed; backing off " << backoff_ms << "ms" << " state=" << state_name(state);
                 std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
                 backoff_ms = std::min(backoff_ms * 2, 5000);
                 ++attempt;
@@ -194,8 +191,7 @@ int main(int argc, char** argv) {
         const auto tick_at = clock::now();
         if (last_tick_at.time_since_epoch().count() != 0) {
             const auto delta = tick_at - last_tick_at;
-            interarrival.add_ns(
-                std::chrono::duration_cast<std::chrono::nanoseconds>(delta).count());
+            interarrival.add_ns(std::chrono::duration_cast<std::chrono::nanoseconds>(delta).count());
         }
         last_tick_at = tick_at;
 
@@ -207,8 +203,7 @@ int main(int argc, char** argv) {
         if (max_ticks > 0 && got_ticks >= max_ticks) break;
     }
 
-    log_info() << "Client exiting after " << got_ticks << " tick(s)."
-               << " final_state=" << state_name(state);
+    log_info() << "Client exiting after " << got_ticks << " tick(s)." << " final_state=" << state_name(state);
     // Inter-arrival of ticks on this host (not one-way wire latency).
     interarrival.report("tick inter-arrival");
     return 0;

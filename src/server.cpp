@@ -152,10 +152,7 @@ int main(int argc, char** argv) {
         if (pfds[0].revents & (POLLIN | POLLERR | POLLHUP)) {
             for (;;) {
                 addrlen = sizeof(address);
-                const int cfd = accept(
-                    listen_sock.get(),
-                    reinterpret_cast<struct sockaddr*>(&address),
-                    &addrlen);
+                const int cfd = accept(listen_sock.get(), reinterpret_cast<struct sockaddr*>(&address), &addrlen);
                 if (cfd < 0) {
                     if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) break;
                     LOG_WARN("accept() failed");

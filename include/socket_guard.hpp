@@ -15,11 +15,13 @@ public:
 
     ~SocketGuard() { reset(); }
 
-    SocketGuard(const SocketGuard&)            = delete;
-    SocketGuard& operator=(const SocketGuard&) = delete;
+    // Reason: two owners of the same fd would both close() it (double-close / use-after-close).
+    SocketGuard(const SocketGuard&)            = delete; // Copy constructor deleted
+    SocketGuard& operator=(const SocketGuard&) = delete; // Copy assignment operator deleted
 
     SocketGuard(SocketGuard&& other) noexcept : fd_(other.fd_) {
-        other.fd_ = -1;
+        other.fd_ = -1; // SocketGuard b = std::move(a);  // OK — b owns fd, a is empty
+                        // (a is in a valid but unspecified state)
     }
 
     SocketGuard& operator=(SocketGuard&& other) noexcept {

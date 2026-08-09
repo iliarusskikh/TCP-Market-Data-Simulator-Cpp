@@ -41,11 +41,7 @@ struct ClientSession {
     // Returns false if the peer is dead / hard error (caller should drop session).
     bool flush() {
         while (out_off < out.size()) {
-            const ssize_t n = ::send(
-                sock.get(),
-                out.data() + out_off,
-                out.size() - out_off,
-                0);
+            const ssize_t n = ::send(sock.get(), out.data() + out_off, out.size() - out_off, 0);
             if (n < 0) {
                 if (errno == EINTR) continue;
                 if (errno == EAGAIN || errno == EWOULDBLOCK) return true; // try later
