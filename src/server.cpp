@@ -134,7 +134,8 @@ int main(int argc, char** argv) {
             pollfd p{};
             p.fd = c.fd();
             p.events = POLLIN;
-            if (c.has_pending()) p.events = static_cast<short>(p.events | POLLOUT);
+            if (c.has_pending())
+                p.events = static_cast<short>(p.events | POLLOUT);
             pfds.push_back(p);
         }
 
@@ -142,13 +143,14 @@ int main(int argc, char** argv) {
         const auto now = clock::now();
         const int timeout_ms = std::min(ms_until(next_tick_at, now), ms_until(next_hb_at, now));
 
-        const int ready = ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), timeout_ms);
+        const int ready = ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), timeout_ms); // timeout_ms is the maximum time to wait for events to occur, sleeping for this amount of time if no events occur
         if (ready < 0) {
             if (errno == EINTR) continue;
             LOG_ERROR("poll() failed");
             return 1;
         }
 
+        // Check if the listen socket is ready to accept a new connection
         if (pfds[0].revents & (POLLIN | POLLERR | POLLHUP)) {
             for (;;) {
                 addrlen = sizeof(address);
@@ -166,6 +168,7 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Check if the client sockets are ready to read or write
         for (size_t i = 0; i < clients.size(); ++i) {
             const short rev = pfds[i + 1].revents;
             if (rev & (POLLERR | POLLHUP | POLLNVAL)) {
