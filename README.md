@@ -44,6 +44,29 @@ Built for portfolio / interview depth in quant infrastructure and systems progra
                     └─────────────────────────────────────┘
 ```
 
+### Server loop (one thread)
+
+Every iteration rebuilds a watch list, sleeps in `poll`, then handles only the fds that woke up. `clients` is **all currently connected sessions**, not “who is transmitting this instant.”
+
+```
+1. Build pfds[]
+     [0]  listen socket          — always watch POLLIN (new connects)
+     [1+] every ClientSession    — always POLLIN; also POLLOUT if unsent bytes
+2. poll(pfds, timeout)
+     One syscall watches every entry. Sleeps until an fd is ready
+     or the sooner of next-tick / next-heartbeat is due.
+3. If listen revents → accept until EAGAIN → emplace into clients
+   (new sessions were not in this pfds snapshot)
+4. For each client that was in pfds (not clients.size() after accept), if revents:
+     POLLERR/HUP → mark alive=false
+     POLLIN      → drain inbound (detect close)
+     POLLOUT     → flush leftover send queue
+5. drop_dead — keep only alive==true (TCP still up; not “active this poll”)
+6. If tick / heartbeat deadline due → enqueue + flush to every remaining client
+```
+
+`O_NONBLOCK` makes `accept`/`recv`/`send` return immediately (`EAGAIN` = try later). `poll` is the sleep so the thread does not spin.
+
 ## Project Structure
 
 ```

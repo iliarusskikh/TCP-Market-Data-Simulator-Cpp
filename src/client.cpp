@@ -58,6 +58,7 @@ static bool connect_to_server(const AppConfig& cfg, SocketGuard& sock) {
         return false;
     }
 
+    // Connect to the server, 0 - success, -1 - error
     if (connect(sock.get(), reinterpret_cast<sockaddr*>(&serv_addr), sizeof(serv_addr)) < 0) {
         sock.reset();
         return false;
@@ -106,6 +107,7 @@ int main(int argc, char** argv) {
                << " max_retries=" << cfg.reconnect_max_retries;
 
     while (!g_shutdown) {
+        // If not connected, try to connect
         if (state != ConnState::Connected) {
             if (attempt > cfg.reconnect_max_retries) {
                 LOG_ERROR("Gave up reconnecting");
@@ -129,10 +131,7 @@ int main(int argc, char** argv) {
             backoff_ms = cfg.reconnect_initial_ms;
             last_rx = clock::now();
             last_tick_at = clock::time_point{}; // reset inter-arrival across reconnects
-            log_info() << "state=" << state_name(state)
-                       << " (Ctrl+C to stop"
-                       << (max_ticks > 0 ? ", max_ticks=" + std::to_string(max_ticks) : "")
-                       << ")";
+            log_info() << "state=" << state_name(state) << " (Ctrl+C to stop" << (max_ticks > 0 ? ", max_ticks=" + std::to_string(max_ticks) : "") << ")";
         }
 
         // Wait for data or heartbeat timeout
@@ -151,8 +150,7 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        if (pr == 0 || (clock::now() - last_rx) >=
-                std::chrono::milliseconds(cfg.heartbeat_timeout_ms)) {
+        if (pr == 0 || (clock::now() - last_rx) >= std::chrono::milliseconds(cfg.heartbeat_timeout_ms)) {
             LOG_WARN("Heartbeat timeout — connection treated as dead");
             sock.reset();
             state = ConnState::Disconnected;
@@ -187,6 +185,7 @@ int main(int argc, char** argv) {
             continue;
         }
 
+        // If it's a tick, update the tick count and inter-arrival time
         ++got_ticks;
         const auto tick_at = clock::now();
         if (last_tick_at.time_since_epoch().count() != 0) {

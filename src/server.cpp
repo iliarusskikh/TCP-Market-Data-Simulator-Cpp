@@ -150,6 +150,10 @@ int main(int argc, char** argv) {
             return 1;
         }
 
+        // Clients accepted this iteration are appended to clients[] but were not
+        // in this pfds snapshot — only walk the fds that poll() actually watched.
+        const size_t watched_clients = pfds.size() - 1;
+
         // Check if the listen socket is ready to accept a new connection
         if (pfds[0].revents & (POLLIN | POLLERR | POLLHUP)) {
             for (;;) {
@@ -169,7 +173,7 @@ int main(int argc, char** argv) {
         }
 
         // Check if the client sockets are ready to read or write
-        for (size_t i = 0; i < clients.size(); ++i) {
+        for (size_t i = 0; i < watched_clients; ++i) {
             const short rev = pfds[i + 1].revents;
             if (rev & (POLLERR | POLLHUP | POLLNVAL)) {
                 clients[i].alive = false;
